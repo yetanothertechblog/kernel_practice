@@ -1,0 +1,15 @@
+# clangd config for CUDA files on a Mac (no CUDA toolkit installed locally).
+# Needs a copy of the CUDA headers at /Users/hp/libs/cuda/include (see README).
+If:
+  PathMatch: .*\.(cu|cuh)
+CompileFlags:
+  Add:
+    - -xcuda
+    - --cuda-gpu-arch=sm_86
+    - --cuda-path=/Users/hp/libs/cuda
+    - -nocudalib
+    - --cuda-host-only
+    - -Wno-unknown-cuda-version
+    - -std=c++17
+    - -I/Users/hp/workspace/kernel_practice/common
+  Remove: [-arch=*, -lineinfo, -rdc=*, -Xcompiler*, --expt-*]
