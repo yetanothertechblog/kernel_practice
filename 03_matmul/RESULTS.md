@@ -118,6 +118,7 @@ Best: swapped 32 x 8, 1423 GFLOP/s (~7% of FP32 peak), 9.5x faster than naive at
 | swapped (col from x), 32 x 8 | 1,423 | 12.9% |
 | tiled, shared memory, TILE 16 | 1,611 | 14.6% |
 | tiled + coarsening (TILE 16, CF 4) | 1,691 | 15.3% |
+| 1D block tiling (BM=BN=64, BK=8, TM=8) | 4,294 | 38.8% |
 | cuBLAS SGEMM | 11,070 | 100% |
 
 ## Tiled (shared memory, TILE_WIDTH 16)
@@ -160,3 +161,20 @@ All runs: 0 errors. GPU holds 276 blocks at once (46 SMs x 6 blocks of 256 threa
   so not even one full wave) and out-of-range tiles (261 cols = 17 tiles; CF 8 covers 24, ~29% wasted).
 - Takeaway: coarsening trades parallelism for reuse. The reuse that matters next is in registers
   (each thread computing several outputs from one shared-memory read): register blocking.
+
+## 1D block tiling (Boehm kernel 4): BM = BN = 64, BK = 8, TM = 8, 512 threads, pointer offsets, no bounds checks
+| M x K x N | ms | GFLOP/s | errors | % of cuBLAS |
+|---|---|---|---|---|
+| 1024 x 512 x 256   | 0.083  | 3,222.4 | 0 | — |
+| 1024 x 1024 x 1024 | 0.500  | 4,294.4 | 0 | 38.8% |
+| 4096 x 4096 x 4096 | 27.648 | 4,971.1 | (skipped) | 42.5% |
+
+- 2.7x the tiled kernel at 1024^3. Shared loads per FMA drop from 2 to ~1.1 (per k: 1 Bs load
+  cached in a register + 8 As loads for 8 FMAs), and global reuse goes from 16x to 64x per element.
+- Shape constraint from one-element-per-thread loads: BM = BN = BK * TM. Host rejects shapes that aren't
+  multiples of BM/BN/BK.
+- Small shape is slower: 1024 x 256 output is only 4 x 16 = 64 blocks for 46 SMs (3 blocks of 512 fit per SM),
+  so the GPU is mostly empty.
+- Bug hit: B tile load used K as B's leading dimension instead of N (square shapes hid it).
+- Next: 2D block tiling — each As value is still used only once per k; an 8x8 patch per thread
+  gives 64 FMAs per 16 shared loads.

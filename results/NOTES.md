@@ -16,9 +16,12 @@
 | naive, row from threadIdx.x (16 x 16) | 306 | 2.8% |
 | coalesced, col from threadIdx.x (32 x 8) | 1,423 | 12.9% |
 | tiled, shared memory (TILE 16) | 1,611 | 14.6% |
+| tiled + coarsening (CF 4) | 1,691 | 15.3% |
+| 1D block tiling (64x64 tile, 8 results/thread) | 4,294 | 38.8% |
 | cuBLAS SGEMM (no TF32) | 11,070 | 100% |
 
 - Naive kernel time is proportional to L1 sectors per load (ncu: 4.5 / 8.5 / 16.5 sectors -> 3.9 / 7.0 / 14.3 ms).
 - Coalesced 32 x 8 runs a memory link at 98% of peak: bandwidth-bound, so only data reuse helps.
 - 1024-thread blocks cap occupancy at 66.7% (1 block/SM, 1536 threads/SM on sm_86) -> latency-bound.
 - Conventions that prevent bugs: x -> col, y -> row, translate once at the top; test odd non-square shapes.
+- Register reuse is the lever past tiling: caching one Bs value across 8 FMAs gave 2.7x over tiled.
