@@ -119,6 +119,7 @@ Best: swapped 32 x 8, 1423 GFLOP/s (~7% of FP32 peak), 9.5x faster than naive at
 | tiled, shared memory, TILE 16 | 1,611 | 14.6% |
 | tiled + coarsening (TILE 16, CF 4) | 1,691 | 15.3% |
 | 1D block tiling (BM=BN=64, BK=8, TM=8) | 4,294 | 38.8% |
+| 2D block tiling (BM=BN=128, BK=8, TM=TN=8) | — (4096^3: 7,373) | 63.0% at 4096^3 |
 | cuBLAS SGEMM | 11,070 | 100% |
 
 ## Tiled (shared memory, TILE_WIDTH 16)
@@ -178,3 +179,18 @@ All runs: 0 errors. GPU holds 276 blocks at once (46 SMs x 6 blocks of 256 threa
 - Bug hit: B tile load used K as B's leading dimension instead of N (square shapes hid it).
 - Next: 2D block tiling — each As value is still used only once per k; an 8x8 patch per thread
   gives 64 FMAs per 16 shared loads.
+
+## 2D block tiling (Boehm kernel 5): BM = BN = 128, BK = 8, TM = TN = 8, 256 threads, no bounds checks
+| M x K x N | ms | GFLOP/s | errors | % of cuBLAS |
+|---|---|---|---|---|
+| 1024 x 512 x 256   | 0.143  | 1,876.0 | 0 | — |
+| 4096 x 4096 x 4096 | 18.642 | 7,372.5 | (skipped) | 63.0% |
+
+- 1.48x the 1D kernel at 4096^3. Per k: TM + TN = 16 shared loads for TM * TN = 64 FMAs (0.25 per FMA,
+  vs ~1.1 for 1D and 2 for tiled). Square patches maximize reuse: FMAs scale with area, loads with perimeter.
+- Tile loads: each thread loads BM*BK/NUM_THREADS = 4 elements of As and 4 of Bs, flat index
+  tid + p*NUM_THREADS (coalesced). Global index uses the matrix's ld; shared index is the flat index.
+- Small shape is slower than 1D (1,876 vs 3,222): 1024 x 256 output is only 8 x 2 = 16 blocks for 46 SMs.
+- Bugs hit: patch mapping divided by BN instead of BN/TN; C pointer offset inside the K loop
+  (illegal memory access); final write missing the patch's column offset.
+- Next: transpose As in shared memory + float4 vectorized loads (Boehm kernel 6).
